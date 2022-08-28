@@ -15,4 +15,5 @@ export LLVM_SYMBOLIZER_PATH=$(which llvm-symbolizer-10)
     -Wno-unknown-cuda-version \
     -fsyntax-only \
     -c /home/zhangzhang/Projects/cpp/debug_template/src/main.cu \
-    -o main.cu.o
+    -o main.cu.o \
+    | jq -s

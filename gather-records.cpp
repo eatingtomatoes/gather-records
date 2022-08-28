@@ -1,3 +1,5 @@
+#include <algorithm>
+
 #include "clang/AST/AST.h"
 #include "clang/AST/ASTConsumer.h"
 #include "clang/AST/RecursiveASTVisitor.h"
@@ -76,10 +78,64 @@ struct Record {
   std::vector<ConstantDef> constant_defs;
 };
 
+void dump_record_as_json(const Record &record) {
+  PrettyStream os(llvm::outs(), "    ");
+
+  os << "{\n";
+  os.indent();
+
+  os << "\"name\": \"" << record.name << "\",\n";
+
+  {
+    os << "\"types\": [\n";
+    os.indent();
+
+    const char *type_alias_delimiter = "";
+
+    for (const TypeAlias &type_alias : record.type_aliases) {
+      os << std::exchange(type_alias_delimiter, ",") << "{\n";
+      os.indent();
+
+      os << "\"from\": \"" << type_alias.from << "\",\n";
+      os << "\"to\": \"" << type_alias.to << "\"\n";
+
+      os.dedent();
+      os << "}\n";
+    }
+
+    os.dedent();
+    os << "],\n";
+  }
+
+  {
+    os << "\"constants\": [\n";
+    os.indent();
+
+    const char *constant_delimiter = "";
+
+    for (const ConstantDef &constant_def : record.constant_defs) {
+      os << std::exchange(constant_delimiter, ",") << "{\n";
+      os.indent();
+
+      os << "\"name\": \"" << constant_def.name << "\",\n";
+      os << "\"type\": \"" << constant_def.type << "\",\n";
+      os << "\"value\": \"" << constant_def.value << "\"\n";
+
+      os.dedent();
+      os << "}\n";
+    }
+
+    os.dedent();
+    os << "]\n";
+  }
+
+  os.dedent();
+  os << "}\n";
+}
+
 class GatherRecordsVisitor : public RecursiveASTVisitor<GatherRecordsVisitor> {
 private:
   ASTContext &context;
-  std::vector<Record> records;
 
 public:
   GatherRecordsVisitor(ASTContext &context) : context(context) {}
@@ -88,8 +144,6 @@ public:
     this->explore_type(type->getCanonicalTypeInternal());
     return true;
   }
-
-  const std::vector<Record> &GetRecords() const { return records; }
 
 private:
   void explore_type(QualType type) {
@@ -111,7 +165,7 @@ private:
       record.name = canonical_type_name;
 
       if (extract_record(record_type->getDecl(), &record))
-        this->records.push_back(record);
+        dump_record_as_json(record);
 
       return;
     }
@@ -189,80 +243,11 @@ private:
   }
 };
 
-void dump_records_as_json(const std::vector<Record> &records) {
-
-  PrettyStream os(llvm::outs(), "    ");
-
-  os << "[\n";
-
-  os.indent();
-
-  const char *record_delimiter = "";
-
-  for (const Record &rec : records) {
-    os << std::exchange(record_delimiter, ",") << "{\n";
-    os.indent();
-
-    os << "\"record_name\": \"" << rec.name << "\",\n";
-
-    {
-      os << "\"type_aliases\": [\n";
-      os.indent();
-
-      const char *type_alias_delimiter = "";
-
-      for (const TypeAlias &type_alias : rec.type_aliases) {
-        os << std::exchange(type_alias_delimiter, ",") << "{\n";
-        os.indent();
-
-        os << "\"from\": \"" << type_alias.from << "\",\n";
-        os << "\"to\": \"" << type_alias.to << "\"\n";
-
-        os.dedent();
-        os << "}\n";
-      }
-
-      os.dedent();
-      os << "],\n";
-    }
-
-    {
-      os << "\"constants\": [\n";
-      os.indent();
-
-      const char *constant_delimiter = "";
-
-      for (const ConstantDef &constant_def : rec.constant_defs) {
-        os << std::exchange(constant_delimiter, ",") << "{\n";
-        os.indent();
-
-        os << "\"name\": \"" << constant_def.name << "\",\n";
-        os << "\"type\": \"" << constant_def.type << "\",\n";
-        os << "\"value\": \"" << constant_def.value << "\"\n";
-
-        os.dedent();
-        os << "}\n";
-      }
-
-      os.dedent();
-      os << "]\n";
-    }
-
-    os.dedent();
-    os << "}\n";
-  }
-
-  os.dedent();
-  os << "]";
-}
-
 class GatherRecordsConsumer : public clang::ASTConsumer {
 public:
   virtual void HandleTranslationUnit(clang::ASTContext &Context) override {
     GatherRecordsVisitor visitor(Context);
-
     visitor.TraverseDecl(Context.getTranslationUnitDecl());
-    dump_records_as_json(visitor.GetRecords());
   }
 };
 
